@@ -1,0 +1,32 @@
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# Используется и в docker-compose, и в DATABASE_URL
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=autoservice
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/autoservice
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+# REDIS_PASSWORD — оставить пустым для dev без пароля
+REDIS_PASSWORD=
+REDIS_URL=redis://localhost:6379/0
+
+# ── Telegram Bot ──────────────────────────────────────────────────────────────
+BOT_TOKEN=1234567890:AABBCCDDEEFFaabbccddeeff-1234567890
+
+# ── API ───────────────────────────────────────────────────────────────────────
+# Internal URL the bot uses to call the API
+API_BASE_URL=http://localhost:8000
+
+# Secret for internal bot→api requests (Bearer token)
+API_INTERNAL_SECRET=change-me-in-production
+
+# ── App config ────────────────────────────────────────────────────────────────
+# Comma-separated list of allowed city areas
+ALLOWED_AREAS=Центр,Север,Юг,Восток,Запад
+
+# Environment: development | production | test
+APP_ENV=development
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+# Telegram IDs of admin users (comma-separated)
+ADMIN_TELEGRAM_IDS=
