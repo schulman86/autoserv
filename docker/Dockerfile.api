@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1: deps — устанавливаем зависимости в отдельном слое
+#          Пересборка только при изменении pyproject.toml / poetry.lock
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS deps
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_VERSION=1.8.5 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir "poetry==$POETRY_VERSION"
+
+# Копируем только манифесты — слой кешируется, пока они не изменились
+COPY pyproject.toml poetry.lock* ./
+RUN poetry install --no-root --without dev
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: runtime — минимальный финальный образ
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Создаём non-root пользователя ДО копирования файлов
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
+# Копируем установленные пакеты из deps-стейджа
+COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+
+# wget легче curl, нужен для healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем исходники с правильным владельцем сразу
+COPY --chown=appuser:appgroup . .
+
+USER appuser
+
+EXPOSE 8000
+
+# Команда по умолчанию — production (без --reload)
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", "--log-level", "info"]

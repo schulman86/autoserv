@@ -1,0 +1,127 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — базовая конфигурация (production-like)
+# Для локальной разработки дополняется docker-compose.override.yml
+# Запускать из корня проекта: docker compose -f docker/docker-compose.yml up
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-autoservice}
+  REDIS_URL: redis://redis:6379/0
+  API_BASE_URL: http://api:8000
+
+x-bot-env: &bot-env
+  REDIS_URL: redis://redis:6379/0
+  API_BASE_URL: http://api:8000
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: autoservice_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-autoservice}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # только localhost, не 0.0.0.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-autoservice}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: autoservice_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ── Migrations ──────────────────────────────────────────────────────────────
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    image: autoservice_api:latest
+    container_name: autoservice_migrate
+    command: alembic upgrade head
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ── API ─────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    image: autoservice_api:latest
+    container_name: autoservice_api
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *api-env
+      APP_ENV: ${APP_ENV:-development}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Bot ─────────────────────────────────────────────────────────────────────
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bot
+    image: autoservice_bot:latest
+    container_name: autoservice_bot
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      <<: *bot-env
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

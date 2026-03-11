@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.override.yml — dev-оверрайды
+# Подхватывается автоматически: docker compose up
+# Для production: docker compose -f docker-compose.yml up
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  postgres:
+    # В dev — порт открыт для прямого подключения из IDE / DBeaver
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  api:
+    # Монтируем исходники — изменения применяются без пересборки образа
+    volumes:
+      - ../api:/app/api
+      - ../common:/app/common
+    # Hot-reload через uvicorn --reload
+    command: >
+      uvicorn api.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/api
+      --reload-dir /app/common
+      --log-level debug
+    environment:
+      APP_ENV: development
+    # В dev — порт доступен с хоста
+    ports:
+      - "8000:8000"
+
+  bot:
+    volumes:
+      - ../bot:/app/bot
+      - ../common:/app/common
+    environment:
+      APP_ENV: development
+    # watchmedo для hot-reload бота (входит в watchdog, указан в dev-зависимостях)
+    command: >
+      watchmedo auto-restart
+      --directory=/app/bot
+      --directory=/app/common
+      --pattern="*.py"
+      --recursive
+      -- python -m bot.main
